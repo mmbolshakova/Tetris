@@ -1,108 +1,137 @@
 ﻿using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Linq;
 using System.Net.NetworkInformation;
+using TMPro;
 using UnityEngine;
+using UnityEngine.UI;
+using UnityEngine.Audio;
 using Random = UnityEngine.Random;
+using UnityEngine.SceneManagement;
 
 public class Board : MonoBehaviour
 {
-    [SerializeField] private GameObject blockPr;
-
-    [SerializeField] private Sprite[] blockSprite;
-
-    private struct Block
-    {
-        public int x;
-        public int y;
-        public GameObject obj;
-
-        public Block(int x, int y, GameObject obj)
-        {
-            this.x = x;
-            this.y = y;
-            this.obj = obj;
-        }
-    }
-
-    private Block[] piece = new Block[4]
-    {
-        new Block(),
-        new Block(),
-        new Block(),
-        new Block(),
-    };
-
+    public GameObject gameObjectBoard;
+    public Canvas gameOver;
+    public Canvas pause;
+    public AudioClip delete;
+    public AudioClip fall;
+    private Blocks blocks;
     public int W = 10;
     public int H = 20;
-
-    private Block[,] block;
-
-    private int[,] shapes = new int[,]
-    {
-        {1, 3, 5, 7},
-        {2, 4, 5, 7},
-        {3, 4, 5, 6},
-        {3, 4, 5, 7},
-        {2, 3, 5, 7},
-        {3, 5, 6, 7},
-        {2, 3, 4, 5},
-    };
-
     private float moveTime = 0f;
     private float moveSpeed = 0.06f;
     private float time = 0;
-    private float dropSpeed = 0.4f;
-    void Start()
+    private int score = 0;
+    private string saveRating;
+    private bool set;
+    public int NewScore()
     {
-        block = new Block[W, H];
-        Generate();
+        return score; 
+    }
+    public void MenuPressed()
+    {
+        SceneManager.LoadScene("Menu");
     }
 
-    // Update is called once per frame
+    public void PausePressed()
+    {
+        Time.timeScale = 0;
+        pause.gameObject.SetActive(true);
+    }
+    public void BackPressed()
+    {
+        pause.gameObject.SetActive(false);
+        Time.timeScale = 1;
+    }
+    int [] marks = {0, 0, 0, 0, 0};
+    void Save()
+    {
+        int count = 0;
+        saveRating = PlayerPrefs.GetString("New");
+        string[] help = saveRating.Split(',');
+        for (int i = 0; i < 5 ; i++)
+        {
+            marks[i] = int.Parse(help[i]);
+            if (score > marks[i])
+                count++;
+        }
+        switch (count)
+        {
+            case 5:
+                marks[0] = score;
+                break;
+            case 4:
+                marks[1] = score;
+                break;
+            case 3:
+                marks[2] = score;
+                break;
+            case 2:
+                marks[3] = score;
+                break;
+            case 1:
+                marks[4] = score;
+                break;
+        }
+        string delimiter = ", ";
+        string tmp = marks.Select(i => i.ToString()).Aggregate((i, j) => i + delimiter + j);
+        PlayerPrefs.SetString("New", tmp);
+        PlayerPrefs.Save();
+        saveRating = PlayerPrefs.GetString("New");
+    }
+    void Start()
+    {
+        blocks = gameObjectBoard.GetComponent<Blocks>();
+    }
+    public void PlayAudio(AudioClip clip)
+    {
+        GetComponent<AudioSource>().PlayOneShot(clip);
+    }
     void Update()
     {
         if (Input.GetKey(KeyCode.LeftArrow))
             HoldAndMove(-1, 0);
         else if (Input.GetKey(KeyCode.RightArrow))
             HoldAndMove(1, 0);
-        else if (Input.GetKey((KeyCode.UpArrow)))
+        else if (Input.GetKeyDown((KeyCode.UpArrow)))
             Rotate();
-        else if (Input.GetKey(KeyCode.DownArrow))
-            dropSpeed = 0.05f; 
+        else if (Input.GetKeyDown(KeyCode.DownArrow))
+            blocks.dropSpeed = 0.05f; 
         time += Time.deltaTime;
-        if (time > dropSpeed)
+        if (time > blocks.dropSpeed)
         {
             if (!Move(0, -1))
             {
+                PlayAudio(fall);
                 for (int i = 0; i < 4; i++)
-                    block[Math.Abs(piece[i].x), -piece[i].y] = piece[i];
-                Generate();
+                    blocks.block[Math.Abs(blocks.piece[i].x), -blocks.piece[i].y] = blocks.piece[i];
+                blocks.Generate();
                 Clear();
             }
             time = 0;
         }
     }
-
-    private void Generate()
+    public bool GameOver()
     {
-        dropSpeed = 0.4f;
-        int n = Random.Range(0, shapes.GetLength(0));
-        for (int i = 0; i < 4; i++)
+        for (int i = 0; i < W; i++)
         {
-            piece[i].x = shapes[n, i] % 2;
-            piece[i].y = - shapes[n, i] / 2;
+            int count = 0;
+            for (int j = 0; j < H; j++)
+            {
+                if (blocks.block[i,j].obj)
+                    count++;
+                if (count == (H - 5))
+                {
+                    Save();
+                    gameOver.gameObject.SetActive(true);
+                    return true;
+                }
+            }
         }
-
-        Sprite sprite = blockSprite[Random.Range(0, blockSprite.Length)];
-        for (int i = 0; i < 4; i++)
-        {
-            piece[i].obj = Instantiate(blockPr, new Vector2(piece[i].x, piece[i].y), Quaternion.identity);
-            SpriteRenderer sr = piece[i].obj.GetComponent<SpriteRenderer>();
-            sr.sprite = sprite;
-        }
+        return false;
     }
-
     private void HoldAndMove(int dx, int dy)
     {
         moveTime += Time.deltaTime;
@@ -112,83 +141,88 @@ public class Board : MonoBehaviour
             moveTime = 0f;
         }
     }
-
-    private bool Move(int dx, int dy)
+    public bool Move(int dx, int dy)
     {
-        Block[] origin = piece.Clone() as Block[];
+        Blocks.Block[] origin = blocks.piece.Clone() as Blocks.Block[];
         for (int i = 0; i < 4; i++)
         {
-            piece[i].x += dx;
-            piece[i].y += dy;
+            blocks.piece[i].x += dx;
+            blocks.piece[i].y += dy;
         }
-
-        return CheckAndSet(origin);
+        return Check(origin);
     }
-
     private void Rotate()
     {
-        Block[] origin = piece.Clone() as Block[];
-        Block p = piece[1];
-        for (int i = 0; i < 4; i++)
+        if (blocks.choiceFigure != 6)
         {
-            int y = piece[i].x - p.x;
-            int x = piece[i].y - p.y;
-            piece[i].x = p.x - x;
-            piece[i].y = p.y + y;
+            Blocks.Block[] origin = blocks.piece.Clone() as Blocks.Block[];
+            Blocks.Block p = blocks.piece[1];
+            for (int i = 0; i < 4; i++)
+            {
+                int y = blocks.piece[i].x - p.x;
+                int x = blocks.piece[i].y - p.y;
+                blocks.piece[i].x = p.x - x;
+                blocks.piece[i].y = p.y + y;
+            }
+            Check(origin);
         }
-        CheckAndSet(origin);
     }
-
-    private bool CheckAndSet(Block[] ori)
+    private void Set(Blocks.Block[] ori, bool isset)
     {
-        bool set = true;
+        if (isset)
+            for (int i = 0; i < 4; i++)
+                blocks.piece[i].obj.transform.position = new Vector2(blocks.piece[i].x, blocks.piece[i].y);
+        else
+            blocks.piece = ori;
+    }
+    private bool Check(Blocks.Block[] ori)
+    {
+        set = true;
         for (int i = 0; i < 4; i++)
         {
-            if (piece[i].x < 0 || piece[i].x >= W || piece[i].y <= -H || block[piece[i].x, -piece[i].y].obj)
+            if (blocks.piece[i].x < 0 || blocks.piece[i].x >= W || blocks.piece[i].y <= -H || blocks.piece[i].y > 0)
+                set = false;
+            else if (blocks.block[blocks.piece[i].x, -blocks.piece[i].y].obj)
                 set = false;
         }
-        if (set)
-            for (int i = 0; i < 4; i++)
-                piece[i].obj.transform.position = new Vector2(piece[i].x, piece[i].y);
-        else
-            piece = ori;
+        Set(ori, set);
         return set;
     }
-
     private void Clear()
     {
-        List<Block> blockToClear = new List<Block>();
+        List<Blocks.Block> blockToClear = new List<Blocks.Block>();
         int k = H - 1;
         int dy = 0;
-
+    
         for (int i = H - 1; i > 0; i--)
         {
             int count = 0;
             blockToClear.Clear();
             for (int j = 0; j < W; j++)
             {
-                if (block[j, i].obj)
+                if (blocks.block[j, i].obj)
                     count++;
-                block[j, i].y += dy;
-                blockToClear.Add(block[j, i]);
-                block[j, k] = block[j, i];
+                blocks.block[j, i].y += dy;
+                blockToClear.Add(blocks.block[j, i]);
+                blocks.block[j, k] = blocks.block[j, i];
             }
-
             if (count < W)
                 k--;
             else
             {
+                score++;
                 dy -= 1;
                 for (int l = 0; l < blockToClear.Count; l++)
                 {
+                    PlayAudio(delete);
                     Destroy(blockToClear[l].obj);
                 }
             }
-
+    
             for (int j = 0; j < W; j++)
             {
-                if (block[j, i].obj)
-                    block[j, i].obj.transform.position = new Vector2(block[j, i].x, block[j, i].y);
+                if (blocks.block[j, i].obj)
+                    blocks.block[j, i].obj.transform.position = new Vector2(blocks.block[j, i].x, blocks.block[j, i].y);
             }
         }
     }
